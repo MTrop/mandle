@@ -254,9 +254,21 @@ function createRequestHandler(handlerList, defaultRequestHandlerOptions)
 
 }
 
+/**
+ * Creates an HTTP server via HTTP.createServer with the main router added.
+ * @param handlerList the list of handler descriptors.
+ * @param defaultRequestHandlerOptions the default options for the router.
+ */
+function server(handlerList, defaultRequestHandlerOptions)
+{
+	return HTTP.createServer(createRequestHandler(handlerList, defaultRequestHandlerOptions));
+}
+
 // ............................. Exports ....................................
 
 exports.createRequestHandler = createRequestHandler;
+
+exports.server = server;
 
 exports.handlers = handlers;
 exports.helpers = helpers;
