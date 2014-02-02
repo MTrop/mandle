@@ -1,0 +1,32 @@
+{
+  "name": "mandle",
+  "version": "0.1.0",
+  "description": "A simple HTTP router with document-serving and Session-keeping capabilities. Can use certain modules optionally for expanded capability, ensuring that your server is as fat or lean as you want.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MTrop/mandle.git"
+  },
+  "keywords": [
+    "router",
+    "handler",
+    "http",
+    "sessions"
+  ],
+  "author": "Matt Tropiano <mtropiano@gmail.com> (http://mtrop.net)",
+  "license": {
+	  "type": "LGPL-2.1",
+	  "url": "http://opensource.org/licenses/LGPL-2.1"
+  },
+  "bugs": {
+    "url": "https://github.com/MTrop/mandle/issues"
+  },
+  "homepage": "https://github.com/MTrop/mandle",
+  "devDependencies": {
+    "mocha": "~1.17.1",
+    "chai": "~1.9.0"
+  }
+}
