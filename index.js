@@ -18,7 +18,12 @@ var UTIL = require('./lib/util');
 var helpers = require('./lib/helpers');
 var handlers = require('./lib/handlers');
 var sessions = require('./lib/sessions');
+var logging = require('./lib/logging');
 
+var FORM = UTIL.require_maybe('formidable');
+
+if (!FORM)
+	logging.info("'Formidable' module not installed. Multipart parsing unavailable.");
 
 var HANDLER_OPTION_DEFAULTS =
 {
@@ -106,9 +111,9 @@ function RouterSet(handlerArray, defaultOptions)
 		"options": {}
 	};
 	
-	if (handlerArray) for (var i = 0; i < handlerArray.length; i++)
+	var processHandlerEntry = function(methodMap, entry) 
 	{
-		var hObj = UTIL.combine({}, HANDLE_DEFAULTS, handlerArray[i]);
+		var hObj = UTIL.combine({}, HANDLE_DEFAULTS, entry);
 		hObj.options = UTIL.combine({}, defaultOptions, hObj.options);
 		
 		var h = {};
@@ -117,20 +122,20 @@ function RouterSet(handlerArray, defaultOptions)
 		{
 			var method = hObj.methods[m].toUpperCase();
 			
-			if ('undefined' === typeof this.methodMap[method])
+			if ('undefined' === typeof methodMap[method])
 				throw new Error("No such HTTP method for handler: "+method);
 			
-			var Map = this.methodMap[method];
+			var Map = methodMap[method];
 			
 			if (!hObj.handler)
 			{
-				console.error("ERROR Mapping: "+(!hObj.path ? "Default handler for " + method : "Handler for " + method + " " + hObj.path) + " is undefined or blank.");
+				logging.error("Mapping: "+(!hObj.path ? "Default handler for " + method : "Handler for " + method + " " + hObj.path) + " is undefined or blank.");
 			}
 			// Default handler: No path defined.
 			else if (!hObj.path)
 			{
 				Map.defaultHandler = new Handler(hObj.handler, hObj.options);
-				console.log("Mapping: Set default handler: " + hObj.methods[m]);
+				logging.info("Mapping: Set default handler: " + hObj.methods[m]);
 			}
 			// Path is a regular expression.
 			else if (UTIL.isRegex(hObj.path))
@@ -138,7 +143,7 @@ function RouterSet(handlerArray, defaultOptions)
 				h.pattern = hObj.path;
 				h.handler = new Handler(hObj.handler, hObj.options);
 				Map.patternhandlers.push(h);
-				console.log("Mapping: Added pattern handler for " + hObj.methods[m] + ' ' + h.path.toString());
+				logging.info("Mapping: Added pattern handler for " + hObj.methods[m] + ' ' + h.path.toString());
 			}
 			// Path is a string with wildcards.
 			else if (hObj.path.indexOf('*') >= 0 || hObj.path.indexOf('?') >= 0)
@@ -146,17 +151,24 @@ function RouterSet(handlerArray, defaultOptions)
 				h.pattern = UTIL.wildcardToRegex(hObj.path);
 				h.handler = new Handler(hObj.handler, hObj.options);
 				Map.patternhandlers.push(h);
-				console.log("Mapping: Added pattern handler for " + hObj.methods[m] + ' ' + hObj.path);
+				logging.info("Mapping: Added pattern handler for " + hObj.methods[m] + ' ' + hObj.path);
 			}
 			// Path is a string.
 			else
 			{
 				Map.statichandlers[hObj.path] = new Handler(hObj.handler, hObj.options);
-				console.log("Mapping: Added static handler for path " + hObj.methods[m] + ' ' + hObj.path);
+				logging.info("Mapping: Added static handler for path " + hObj.methods[m] + ' ' + hObj.path);
 			}
 		}
-		
+	};
+	
+	// if array...
+	if (UTIL.isArray(handlerArray)) for (var i = 0; i < handlerArray.length; i++)
+	{
+		processHandlerEntry(this.methodMap, handlerArray[i]);
 	}
+	else
+		processHandlerEntry(this.methodMap, handlerArray);
 }
 
 /**
@@ -226,6 +238,15 @@ function createRequestHandler(handlerList, defaultRequestHandlerOptions)
 				case 'application/json':
 					try {data = JSON.parse(requestContent);} catch (e) {}
 					break;
+				case 'multipart/form-data':
+				case 'multipart/alternative':
+				case 'multipart/byteranges':
+				case 'multipart/digest':
+				case 'multipart/mixed':
+				case 'multipart/parallel':
+				case 'multipart/related':
+					// Not supported yet. :(
+					break;
 			}
 			else
 			{
@@ -247,7 +268,7 @@ function createRequestHandler(handlerList, defaultRequestHandlerOptions)
 				_handleRoute(RM, request, response, model);
 			}
 			else
-				helpers.sendContent(response, 400, "Bad Input", "Bad or unsupported format for content type.");
+				helpers.sendContent(response, 400, "text/plain", "400 Bad Input - Unsupported format or content type.");
 		});
 		
 	};
