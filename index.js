@@ -11,6 +11,9 @@ var HTTP = require('http');
 var URL = require('url');
 var PATH = require('path');
 var QS = require('querystring');
+var OS = require('os');
+
+var TMPDIR = OS.tmpDir();
 
 // Import Internal Modules --------------------------------------------------- 
 
@@ -19,156 +22,68 @@ var helpers = require('./lib/helpers');
 var handlers = require('./lib/handlers');
 var sessions = require('./lib/sessions');
 var logging = require('./lib/logging');
+var RouterMapping = require('./lib/router.js').RouterMapping;
 
-var FORM = UTIL.require_maybe('formidable');
+// Import Optional External Modules ------------------------------------------ 
 
-if (!FORM)
+var FORMIDABLE = UTIL.require_maybe('formidable');
+
+if (!FORMIDABLE)
 	logging.info("'Formidable' module not installed. Multipart parsing unavailable.");
 
-var HANDLER_OPTION_DEFAULTS =
+// OPTIONS ------------------------------------------------------------------- 
+
+var FORM_OPTION_DEFAULTS = 
 {
-	"session": false
+	"encoding": 'utf8',
+	"uploadDir": TMPDIR,
+	"keepExtensions": false,
+	"type": 'multipart',
+	"maxFieldsSize": (1024 * 1024 * 4), //4MB
+	"maxFields": 1000,
+	"hash": false,
+	"events": {}
 };
 
-// ............................... Router ....................................
+// ............................. Handler .....................................
 
-function _handleRoute(map, request, response, model)
+function _finishRequest(request, response, handlerObj, path, params, files)
 {
-	var methodMap = map.methodMap[request.method];
-	var handlerObj = null;
+	request.cookies = helpers.getCookies(request);
 	
-	if ('undefined' === typeof methodMap)
-	{
-		helpers.sendContent(response, 404, "text/plain", "404 Not Found\n" + request.method + ' ' + model._path);
-		return;
-	}
+	var model = {};
+	var split = request.headers.host.split(':');
+	model._method = request.method;
+	model._host = split[0];
+	model._port = split[1];
+	model._path = path;
+	model._params = params;
+	model._files = files ? files : {};
+	model._cookies = request.cookies;
+	model._session = null;
+
+	// do stuff according to options.
+	if (handlerObj.session)
+		model._session = sessions.get(request, response);
 	
-	if (methodMap.statichandlers[model._path])
-		handlerObj = methodMap.statichandlers[model._path];
-	else for (var i = 0; handlerObj === null && i < methodMap.patternhandlers.length; i++)
-	{
-		var p = methodMap.patternhandlers[i];
-		if (p.pattern.test(model._path))
-			handlerObj = p.handler; 
-	}
-	
-	handlerObj = handlerObj === null ? methodMap.defaultHandler : handlerObj;
-	
-	if (handlerObj)
-	{
-		// do stuff according to options.
-		if (handlerObj.handlerOptions.session)
-			model._session = sessions.get(request, response);
-		
-		handlerObj.handlerFunction(request, response, model);
-	}
-	else
-		helpers.sendContent(response, 405, "text/plain", "405 Not Supported\n" + request.method + ' ' + model._path);
+	handlerObj.handler(request, response, model);
 }
 
-/**
- * Handler map object for storing path-related handlers, in order of priority.
- */
-function RouterSet(handlerArray, defaultOptions)
+function _readPOSTContent(request, callback)
 {
-	function Handler(func, opts)
+	var content = '';
+	
+	request.setEncoding("utf8");
+	request.addListener("data", function(chunk)
 	{
-		// Handler function: function(req, res, model)
-		this.handlerFunction = func;
-		// options object.
-		this.handlerOptions = opts;
-	}
+		content += chunk;
+	});
+	
+	request.addListener("end", function()
+	{
+		callback(content);
+	});
 
-	function HandlerSet()
-	{
-		// assoc array of 'path' -> Handler() 
-		this.statichandlers = [];
-		// array of {pattern: /regex/, handler:  Handler()} 
-		this.patternhandlers = [];
-		// -> Handler() 
-		this.defaultHandler = null;
-	}
-	
-	// Mapping of method to handlers.
-	this.methodMap =
-	{
-		"GET": new HandlerSet(),
-		"POST": new HandlerSet(),
-		"HEAD": new HandlerSet(),
-		"PUT": new HandlerSet(),
-		"OPTIONS": new HandlerSet(),
-		"DELETE": new HandlerSet(),
-		"TRACE": new HandlerSet(),
-		"CONNECT": new HandlerSet(),
-	};
-	
-	// Default field values for incoming handler specs.
-	var HANDLE_DEFAULTS =
-	{
-		"path": null,
-		"methods": ["GET", "POST"],
-		"handler": null,
-		"options": {}
-	};
-	
-	var processHandlerEntry = function(methodMap, entry) 
-	{
-		var hObj = UTIL.combine({}, HANDLE_DEFAULTS, entry);
-		hObj.options = UTIL.combine({}, defaultOptions, hObj.options);
-		
-		var h = {};
-		
-		if (hObj.methods) for (var m = 0; m < hObj.methods.length; m++)
-		{
-			var method = hObj.methods[m].toUpperCase();
-			
-			if ('undefined' === typeof methodMap[method])
-				throw new Error("No such HTTP method for handler: "+method);
-			
-			var Map = methodMap[method];
-			
-			if (!hObj.handler)
-			{
-				logging.error("Mapping: "+(!hObj.path ? "Default handler for " + method : "Handler for " + method + " " + hObj.path) + " is undefined or blank.");
-			}
-			// Default handler: No path defined.
-			else if (!hObj.path)
-			{
-				Map.defaultHandler = new Handler(hObj.handler, hObj.options);
-				logging.info("Mapping: Set default handler: " + hObj.methods[m]);
-			}
-			// Path is a regular expression.
-			else if (UTIL.isRegex(hObj.path))
-			{
-				h.pattern = hObj.path;
-				h.handler = new Handler(hObj.handler, hObj.options);
-				Map.patternhandlers.push(h);
-				logging.info("Mapping: Added pattern handler for " + hObj.methods[m] + ' ' + h.path.toString());
-			}
-			// Path is a string with wildcards.
-			else if (hObj.path.indexOf('*') >= 0 || hObj.path.indexOf('?') >= 0)
-			{
-				h.pattern = UTIL.wildcardToRegex(hObj.path);
-				h.handler = new Handler(hObj.handler, hObj.options);
-				Map.patternhandlers.push(h);
-				logging.info("Mapping: Added pattern handler for " + hObj.methods[m] + ' ' + hObj.path);
-			}
-			// Path is a string.
-			else
-			{
-				Map.statichandlers[hObj.path] = new Handler(hObj.handler, hObj.options);
-				logging.info("Mapping: Added static handler for path " + hObj.methods[m] + ' ' + hObj.path);
-			}
-		}
-	};
-	
-	// if array...
-	if (UTIL.isArray(handlerArray)) for (var i = 0; i < handlerArray.length; i++)
-	{
-		processHandlerEntry(this.methodMap, handlerArray[i]);
-	}
-	else
-		processHandlerEntry(this.methodMap, handlerArray);
 }
 
 /**
@@ -183,8 +98,9 @@ function RouterSet(handlerArray, defaultOptions)
  *		_files: an associative array of file handles.
  *		{
  *			name: filename.
- *			path: temporary path to the file (they are deleted).
+ *			path: temporary path to the file uploaded.
  *			type: content type.
+ *			size: file size in bytes.
  *		}
  *		_cookies: an associative array of cookies. cookie name -> Object. (This is also set on the request object as member "cookies").
  *		_session: the current session object, if any. if sessions are not enabled for this handler, it is null!
@@ -194,49 +110,80 @@ function RouterSet(handlerArray, defaultOptions)
  *		methods: [ ... ] // HTTP methods default: ["GET", "POST"]
  *		path: '/blah' or /regex/
  *		handler: function(request, response, model)
- *		options: a set of options for this handler.
+ *		session: true or false (if true, tie to a session. if false, don't. default: false)
+ *		form: an object detailing options for FORMIDABLE, the form parser (if installed - used if multipart content).
  *		{
- *			session: true or false (if true, tie to a session. if false, don't. default: false)
+ *			encoding: Request body encoding. Default 'utf8'.
+ *			uploadDir: Temporary directory for file uploads. Default OS.tmpDir().
+ *			keepExtensions: if true, keep file extensions on uploads. If false, don't. Default false.
+ *			type: type of form ('multipart' or 'urlencoded'). Default 'multipart'.
+ *			maxFieldsSize: Maximum acceptable field size. Default 4MB.
+ *			maxFields:  Maximum amount of fields to parse; 0 is no limit. Default 1000.
+ *			hash: If true, compute a hash for each uploaded file. If false, don't. Default false.
+ *			events: An object map of event names to callbacks for monitoring Formidable form reading. Only specified events are set.
  *		}
  * }
- * @param defaultRequestHandlerOptions the default options to apply to each handler if none are specified.
+ * @param defaultHandlerOptions the default options to apply to each handler if none are specified. See handlerList.options.
  * @returns {Function} for use as an HTTP.Server's "on incoming request" callback.
  */
-function createRequestHandler(handlerList, defaultRequestHandlerOptions)
+function createRequestHandler(handlerList, defaultHandlerOptions)
 {
+	var formDefaults = UTIL.combine({}, FORM_OPTION_DEFAULTS);
+	
+	var HANDLER_DEFAULTS =
+	{
+		"path": null,
+		"methods": ["GET", "POST"],
+		"session": false,
+		"form" : formDefaults
+	};
+	
 	// fill options
-	var defaultOptions = UTIL.combine({}, HANDLER_OPTION_DEFAULTS, defaultRequestHandlerOptions);
+	var defaultOptions = UTIL.combine({}, HANDLER_DEFAULTS, defaultHandlerOptions);
 
 	// create handler map.
-	var RM = new RouterSet(handlerList, defaultOptions);
+	var RM = new RouterMapping(handlerList, defaultOptions);
 
-	
 	return function(request, response)
 	{
 		var urlObj = URL.parse(request.url);
 		var path = urlObj.pathname;
 		
-		// "Merge" GET and POST content if any.
-		
-		var requestContent = '';
-		
-		request.setEncoding("utf8");
-		request.addListener("data", function(chunk)
+		var handlerObj = RM.getRouteForPath(request.method, path);
+
+		if (!handlerObj)
 		{
-			requestContent += chunk;
-		});
-		
-		request.addListener("end", function()
+			helpers.sendContent(response, 405, "text/plain", "405 Method Not Allowed\nNo handler for " + request.method + ' ' + model._path);
+			return;
+		}
+
+		// If POST, read request body like a buffer.
+		if (request.method === 'POST')
 		{
-			var data = null;
-			
-			if (request.method === 'POST') switch (request.headers["content-type"])
+			var ctype = request.headers["content-type"];
+			ctype = ctype.indexOf(';') >= 0 ? ctype.substring(0, ctype.indexOf(';')) : ctype;
+
+			switch (ctype)
 			{
 				case 'application/x-www-form-urlencoded':
-					data = QS.parse(requestContent);
+					_readPOSTContent(function(data)
+					{
+						try {
+							_finishRequest(request, response, handlerObj, path, QS.parse(data));
+						} catch (e) {
+							helpers.sendContent(response, 400, "text/plain", "400 Bad Input\nContent was not encoded properly for 'x-www-form-urlencoded'.");
+						}
+					});
 					break;
 				case 'application/json':
-					try {data = JSON.parse(requestContent);} catch (e) {}
+					_readPOSTContent(function(data)
+					{
+						try {
+							_finishRequest(request, response, handlerObj, path, JSON.parse(data));
+						} catch (e) {
+							helpers.sendContent(response, 400, "text/plain", "400 Bad Input\nContent was not encoded properly for 'application/json'.");
+						}
+					});
 					break;
 				case 'multipart/form-data':
 				case 'multipart/alternative':
@@ -245,34 +192,37 @@ function createRequestHandler(handlerList, defaultRequestHandlerOptions)
 				case 'multipart/mixed':
 				case 'multipart/parallel':
 				case 'multipart/related':
-					// Not supported yet. :(
+					if (FORMIDABLE)
+					{
+						var form = new FORMIDABLE.IncomingForm();
+						UTIL.combine(form, handlerObj.form);
+						UTIL.mapEventsTo(form, handlerObj.form.events);
+						
+						form.parse(request, function(err, fields, files)
+						{
+							if (err)
+							{
+								helpers.sendContent(response, 400, "text/plain", "400 Bad Input\n"+err);
+								return;
+							}
+							
+							_finishRequest(request, response, handlerObj, path, fields, files);
+						});
+					}
+					else
+						helpers.sendContent(response, 400, "text/plain", "400 Bad Request\nServer lacks the extension to process this request.");
+					break;
+				default:
+					helpers.sendContent(response, 400, "text/plain", "400 Bad Request\nUnsupported content type.");
 					break;
 			}
-			else
-			{
-				data = QS.parse(urlObj.query);
-			}
-			
-			if (data !== null)
-			{
-				request.cookies = helpers.getCookies(request);
-				
-				var model = {};
-				var split = request.headers.host.split(':');
-				model._host = split[0];
-				model._port = split[1];
-				model._path = path;
-				model._params = data;
-				model._cookies = request.cookies;
-				model._session = null;
-				_handleRoute(RM, request, response, model);
-			}
-			else
-				helpers.sendContent(response, 400, "text/plain", "400 Bad Input - Unsupported format or content type.");
-		});
+		}
+		else
+		{
+			_finishRequest(request, response, handlerObj, path, QS.parse(urlObj.query));
+		}
 		
 	};
-
 }
 
 /**
@@ -294,3 +244,31 @@ exports.server = server;
 exports.handlers = handlers;
 exports.helpers = helpers;
 exports.sessions = sessions;
+
+exports.utils = UTIL;
+
+/**
+ * Sets the internal logger's logging level.
+ * Default is 3.
+ * @param level the following values: 
+ *		0 for FATAL only.
+ *		1 for ERROR and lower.
+ *		2 for WARN and lower.
+ *		3 for INFO and lower.
+ *		4 for DEBUG and lower.
+ *		Anything else is ignored (nothing changes).
+ */
+exports.setLoggingLevel = function(level) 
+{
+	if (level >= 0 && level <= 4)
+		logging.options.level = level;
+};
+
+/**
+ * Returns the common session options.
+ * Changes made to this object 
+ */
+exports.getSessionOptions = function() 
+{
+	return sessions.options;
+};
