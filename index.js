@@ -17,74 +17,22 @@ var TMPDIR = OS.tmpDir();
 
 // Import Internal Modules --------------------------------------------------- 
 
-var UTIL = require('./lib/util');
+var util = require('./lib/util');
 var helpers = require('./lib/helpers');
 var handlers = require('./lib/handlers');
-var sessions = require('./lib/sessions');
 var logging = require('./lib/logging');
-var RouterMapping = require('./lib/router.js').RouterMapping;
+
+var SessionMap = require('./lib/sessionmap').SessionMap;
+var Router = require('./lib/router').Router;
 
 // Import Optional External Modules ------------------------------------------ 
 
-var FORMIDABLE = UTIL.require_maybe('formidable');
+var FORMIDABLE = util.require_maybe('formidable');
 
 if (!FORMIDABLE)
 	logging.info("'Formidable' module not installed. Multipart parsing unavailable.");
 
 // OPTIONS ------------------------------------------------------------------- 
-
-var FORM_OPTION_DEFAULTS = 
-{
-	"encoding": 'utf8',
-	"uploadDir": TMPDIR,
-	"keepExtensions": false,
-	"type": 'multipart',
-	"maxFieldsSize": (1024 * 1024 * 4), //4MB
-	"maxFields": 1000,
-	"hash": false,
-	"events": {}
-};
-
-// ............................. Handler .....................................
-
-function _finishRequest(request, response, handlerObj, path, params, files)
-{
-	request.cookies = helpers.getCookies(request);
-	
-	var model = {};
-	var split = request.headers.host.split(':');
-	model._method = request.method;
-	model._host = split[0];
-	model._port = split[1];
-	model._path = path;
-	model._params = params;
-	model._files = files ? files : {};
-	model._cookies = request.cookies;
-	model._session = null;
-
-	// do stuff according to options.
-	if (handlerObj.session)
-		model._session = sessions.get(request, response);
-	
-	handlerObj.handler(request, response, model);
-}
-
-function _readPOSTContent(request, callback)
-{
-	var content = '';
-	
-	request.setEncoding("utf8");
-	request.addListener("data", function(chunk)
-	{
-		content += chunk;
-	});
-	
-	request.addListener("end", function()
-	{
-		callback(content);
-	});
-
-}
 
 /**
  * Creates a request handler function for routing requests.
@@ -105,7 +53,7 @@ function _readPOSTContent(request, callback)
  *		_cookies: an associative array of cookies. cookie name -> Object. (This is also set on the request object as member "cookies").
  *		_session: the current session object, if any. if sessions are not enabled for this handler, it is null!
  * } 
- * @param handlerList the list of handlers to map. 
+ * @param routeList the list of routes to map. 
  * {
  *		methods: [ ... ] // HTTP methods default: ["GET", "POST"]
  *		path: '/blah' or /regex/
@@ -117,39 +65,91 @@ function _readPOSTContent(request, callback)
  *			uploadDir: Temporary directory for file uploads. Default OS.tmpDir().
  *			keepExtensions: if true, keep file extensions on uploads. If false, don't. Default false.
  *			type: type of form ('multipart' or 'urlencoded'). Default 'multipart'.
- *			maxFieldsSize: Maximum acceptable field size. Default 4MB.
+ *			maxFieldsSize: Maximum acceptable field size. Default 2MB.
  *			maxFields:  Maximum amount of fields to parse; 0 is no limit. Default 1000.
  *			hash: If true, compute a hash for each uploaded file. If false, don't. Default false.
  *			events: An object map of event names to callbacks for monitoring Formidable form reading. Only specified events are set.
  *		}
  * }
- * @param defaultHandlerOptions the default options to apply to each handler if none are specified. See handlerList.options.
+ * @param options the options to apply to this request handler.
+ * {
+ * 		routerDefaults: Default attributes to apply to all routing entries before the actual handler properties.
+ *		{
+ *			methods: Request method bindings. Default ["GET", "POST"].
+ *			session: Whether sessions are enabled or not. Default false.
+ *		}
+ *   	sessionOptions: Options for the session manager.
+ *		{
+ *			timeout: The timeout in milliseconds for each created session. Default (1000 * 60 * 30), or 30 minutes.
+ *	 	}
+ * }
  * @returns {Function} for use as an HTTP.Server's "on incoming request" callback.
  */
-function createRequestHandler(handlerList, defaultHandlerOptions)
+function createRequestHandler(routeList, options)
 {
-	var formDefaults = UTIL.combine({}, FORM_OPTION_DEFAULTS);
-	
-	var HANDLER_DEFAULTS =
+	var ROUTER_DEFAULTS =
 	{
-		"path": null,
 		"methods": ["GET", "POST"],
 		"session": false,
-		"form" : formDefaults
+	};
+
+	var SESSION_DEFAULTS =
+	{
+		"timeout": (1000 * 60 * 30)
 	};
 	
-	// fill options
-	var defaultOptions = UTIL.combine({}, HANDLER_DEFAULTS, defaultHandlerOptions);
+	var defaultRouteOptions = util.combine({}, ROUTER_DEFAULTS, options ? options.routerDefaults : null);
+	var defaultSessionOptions = util.combine({}, SESSION_DEFAULTS, options ? options.sessionOptions : null);
 
 	// create handler map.
-	var RM = new RouterMapping(handlerList, defaultOptions);
+	var RouterMap = new Router(routeList, defaultRouteOptions);
+	// create session map.
+	var sessions = new SessionMap(defaultSessionOptions);
+	
+	var _finishRequest = function(request, response, handlerObj, path, params, files)
+	{
+		request.cookies = helpers.getCookies(request);
+		
+		var model = {};
+		model._method = request.method;
+		model._host = request.headers.hostname;
+		model._port = request.headers.port;
+		model._path = path;
+		model._params = params;
+		model._files = files ? files : {};
+		model._cookies = request.cookies;
+		model._session = null;
+
+		// do stuff according to options.
+		if (handlerObj.session)
+			model._session = sessions.get(request, response);
+		
+		handlerObj.handler(request, response, model);
+	};
+
+	var _readPOSTContent = function(request, callback)
+	{
+		var content = '';
+		
+		request.setEncoding("utf8");
+		request.addListener("data", function(chunk)
+		{
+			content += chunk;
+		});
+		
+		request.addListener("end", function()
+		{
+			callback(content);
+		});
+
+	};
 
 	return function(request, response)
 	{
 		var urlObj = URL.parse(request.url);
 		var path = urlObj.pathname;
 		
-		var handlerObj = RM.getRouteForPath(request.method, path);
+		var handlerObj = RouterMap.getRouteForPath(request.method, path);
 
 		if (!handlerObj)
 		{
@@ -195,8 +195,12 @@ function createRequestHandler(handlerList, defaultHandlerOptions)
 					if (FORMIDABLE)
 					{
 						var form = new FORMIDABLE.IncomingForm();
-						UTIL.combine(form, handlerObj.form);
-						UTIL.mapEventsTo(form, handlerObj.form.events);
+						if (handlerObj.form)
+						{
+							util.combine(form, handlerObj.form);
+							if (handlerObj.form.events)
+								util.mapEventsTo(form, handlerObj.form.events);
+						}
 						
 						form.parse(request, function(err, fields, files)
 						{
@@ -238,14 +242,12 @@ function server(handlerList, defaultRequestHandlerOptions)
 // ............................. Exports ....................................
 
 exports.createRequestHandler = createRequestHandler;
-
 exports.server = server;
 
 exports.handlers = handlers;
 exports.helpers = helpers;
-exports.sessions = sessions;
 
-exports.utils = UTIL;
+exports.utils = util;
 
 /**
  * Sets the internal logger's logging level.
@@ -262,13 +264,4 @@ exports.setLoggingLevel = function(level)
 {
 	if (level >= 0 && level <= 4)
 		logging.options.level = level;
-};
-
-/**
- * Returns the common session options.
- * Changes made to this object 
- */
-exports.getSessionOptions = function() 
-{
-	return sessions.options;
 };
