@@ -111,9 +111,10 @@ function createRequestHandler(routeList, options)
 		request.cookies = helpers.getCookies(request);
 		
 		var model = {};
+		var split = request.headers.host.split(':');
 		model._method = request.method;
-		model._host = request.headers.hostname;
-		model._port = request.headers.port;
+		model._host = split[0];
+		model._port = split[1];
 		model._path = path;
 		model._params = params;
 		model._files = files ? files : {};
