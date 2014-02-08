@@ -196,13 +196,15 @@ function server(handlerList, defaultRequestHandlerOptions)
  *		_host: the requested host
  *		_port: the requested port
  *		_path: the parsed path
- *		_params: an associative array of parameters.
- *		_files: an associative array of file handles.
+ *		_params: an associative array of parameters. Key is param name. Value is string or string array.
+ *		_files: an associative array of file handles. Key is param name. Value is the following:
  *		{
- *			name: filename.
+ *			name: filename, according to client.
  *			path: temporary path to the file uploaded.
- *			type: content type.
+ *			type: content MIME type, according to client.
  *			size: file size in bytes.
+ *			lastModifiedDate: last modified date, according to client.
+ *			hash: file's hash info, or null if not calculated.
  *		}
  *		_cookies: an associative array of cookies. cookie name -> Object. (This is also set on the request object as member "cookies").
  *		_session: the current session object, if any. if sessions are not enabled for this handler, it is null!
