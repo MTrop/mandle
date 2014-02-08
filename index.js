@@ -23,7 +23,7 @@ var handlers = require('./lib/handlers');
 var logging = require('./lib/logging');
 
 var SessionMap = require('./lib/sessionmap').SessionMap;
-var Router = require('./lib/router').Router;
+var RouterUnit = require('./lib/router').RouterUnit;
 
 // Import Optional External Modules ------------------------------------------ 
 
@@ -33,6 +33,160 @@ if (!FORMIDABLE)
 	logging.info("'Formidable' module not installed. Multipart parsing unavailable.");
 
 // OPTIONS ------------------------------------------------------------------- 
+
+// Creates a request handler function for routing requests.
+function router(routeList, options)
+{
+	var ROUTER_DEFAULTS =
+	{
+		"methods": ["GET", "POST"],
+		"session": false,
+	};
+
+	var SESSION_DEFAULTS =
+	{
+		"timeout": (1000 * 60 * 30)
+	};
+	
+	var defaultRouteOptions = util.combine({}, ROUTER_DEFAULTS, options ? options.routerDefaults : null);
+	var defaultSessionOptions = util.combine({}, SESSION_DEFAULTS, options ? options.sessionOptions : null);
+
+	// create handler map.
+	var RouterMap = new RouterUnit(routeList, defaultRouteOptions);
+	// create session map.
+	var sessions = new SessionMap(defaultSessionOptions);
+	
+	var _finishRequest = function(request, response, handlerObj, path, params, files)
+	{
+		request.cookies = helpers.getCookies(request);
+		
+		var model = {};
+		var split = request.headers.host.split(':');
+		model._method = request.method;
+		model._host = split[0];
+		model._port = split[1];
+		model._path = path;
+		model._params = params;
+		model._files = files ? files : {};
+		model._cookies = request.cookies;
+		model._session = null;
+
+		// do stuff according to options.
+		if (handlerObj.session)
+			model._session = sessions.get(request, response);
+		
+		handlerObj.handler(request, response, model);
+	};
+
+	var _readPOSTContent = function(request, callback)
+	{
+		var content = '';
+		
+		request.setEncoding("utf8");
+		request.addListener("data", function(chunk)
+		{
+			content += chunk;
+		});
+		
+		request.addListener("end", function()
+		{
+			callback(content);
+		});
+
+	};
+
+	return function(request, response)
+	{
+		var urlObj = URL.parse(request.url);
+		var path = urlObj.pathname;
+		
+		var handlerObj = RouterMap.getRouteForPath(request.method, path);
+
+		if (!handlerObj)
+		{
+			helpers.sendStatus(response, 405, "No handler for " + request.method + ' ' + model._path);
+			return;
+		}
+
+		// If POST, read request body like a buffer.
+		if (request.method === 'POST')
+		{
+			var ctype = request.headers["content-type"];
+			ctype = ctype.indexOf(';') >= 0 ? ctype.substring(0, ctype.indexOf(';')) : ctype;
+
+			switch (ctype)
+			{
+				case 'application/x-www-form-urlencoded':
+					_readPOSTContent(function(data)
+					{
+						try {
+							_finishRequest(request, response, handlerObj, path, QS.parse(data));
+						} catch (e) {
+							helpers.sendStatus(response, 400, "Content was not encoded properly for 'x-www-form-urlencoded'.");
+						}
+					});
+					break;
+				case 'application/json':
+					_readPOSTContent(function(data)
+					{
+						try {
+							_finishRequest(request, response, handlerObj, path, JSON.parse(data));
+						} catch (e) {
+							helpers.sendStatus(response, 400, "Content was not encoded properly for 'application/json'.");
+						}
+					});
+					break;
+				case 'multipart/form-data':
+				case 'multipart/alternative':
+				case 'multipart/byteranges':
+				case 'multipart/digest':
+				case 'multipart/mixed':
+				case 'multipart/parallel':
+				case 'multipart/related':
+					if (FORMIDABLE)
+					{
+						var form = new FORMIDABLE.IncomingForm();
+						if (handlerObj.form)
+						{
+							util.combine(form, handlerObj.form);
+							if (handlerObj.form.events)
+								util.mapEventsTo(form, handlerObj.form.events);
+						}
+						
+						form.parse(request, function(err, fields, files)
+						{
+							if (err)
+							{
+								helpers.sendStatus(response, 400, err);
+								return;
+							}
+							
+							_finishRequest(request, response, handlerObj, path, fields, files);
+						});
+					}
+					else
+						helpers.sendStatus(response, 400, "Server lacks the extension to process this request.");
+					break;
+				default:
+					helpers.sendStatus(response, 400, "Unsupported content type.");
+					break;
+			}
+		}
+		else
+		{
+			_finishRequest(request, response, handlerObj, path, QS.parse(urlObj.query));
+		}
+		
+	};
+}
+
+// Creates an HTTP server via HTTP.createServer with the main router added.
+function server(handlerList, defaultRequestHandlerOptions)
+{
+	return HTTP.createServer(router(handlerList, defaultRequestHandlerOptions));
+}
+
+// ............................. Exports ....................................
 
 /**
  * Creates a request handler function for routing requests.
@@ -85,170 +239,182 @@ if (!FORMIDABLE)
  * }
  * @returns {Function} for use as an HTTP.Server's "on incoming request" callback.
  */
-function createRequestHandler(routeList, options)
-{
-	var ROUTER_DEFAULTS =
-	{
-		"methods": ["GET", "POST"],
-		"session": false,
-	};
-
-	var SESSION_DEFAULTS =
-	{
-		"timeout": (1000 * 60 * 30)
-	};
-	
-	var defaultRouteOptions = util.combine({}, ROUTER_DEFAULTS, options ? options.routerDefaults : null);
-	var defaultSessionOptions = util.combine({}, SESSION_DEFAULTS, options ? options.sessionOptions : null);
-
-	// create handler map.
-	var RouterMap = new Router(routeList, defaultRouteOptions);
-	// create session map.
-	var sessions = new SessionMap(defaultSessionOptions);
-	
-	var _finishRequest = function(request, response, handlerObj, path, params, files)
-	{
-		request.cookies = helpers.getCookies(request);
-		
-		var model = {};
-		var split = request.headers.host.split(':');
-		model._method = request.method;
-		model._host = split[0];
-		model._port = split[1];
-		model._path = path;
-		model._params = params;
-		model._files = files ? files : {};
-		model._cookies = request.cookies;
-		model._session = null;
-
-		// do stuff according to options.
-		if (handlerObj.session)
-			model._session = sessions.get(request, response);
-		
-		handlerObj.handler(request, response, model);
-	};
-
-	var _readPOSTContent = function(request, callback)
-	{
-		var content = '';
-		
-		request.setEncoding("utf8");
-		request.addListener("data", function(chunk)
-		{
-			content += chunk;
-		});
-		
-		request.addListener("end", function()
-		{
-			callback(content);
-		});
-
-	};
-
-	return function(request, response)
-	{
-		var urlObj = URL.parse(request.url);
-		var path = urlObj.pathname;
-		
-		var handlerObj = RouterMap.getRouteForPath(request.method, path);
-
-		if (!handlerObj)
-		{
-			helpers.sendContent(response, 405, "text/plain", "405 Method Not Allowed\nNo handler for " + request.method + ' ' + model._path);
-			return;
-		}
-
-		// If POST, read request body like a buffer.
-		if (request.method === 'POST')
-		{
-			var ctype = request.headers["content-type"];
-			ctype = ctype.indexOf(';') >= 0 ? ctype.substring(0, ctype.indexOf(';')) : ctype;
-
-			switch (ctype)
-			{
-				case 'application/x-www-form-urlencoded':
-					_readPOSTContent(function(data)
-					{
-						try {
-							_finishRequest(request, response, handlerObj, path, QS.parse(data));
-						} catch (e) {
-							helpers.sendContent(response, 400, "text/plain", "400 Bad Input\nContent was not encoded properly for 'x-www-form-urlencoded'.");
-						}
-					});
-					break;
-				case 'application/json':
-					_readPOSTContent(function(data)
-					{
-						try {
-							_finishRequest(request, response, handlerObj, path, JSON.parse(data));
-						} catch (e) {
-							helpers.sendContent(response, 400, "text/plain", "400 Bad Input\nContent was not encoded properly for 'application/json'.");
-						}
-					});
-					break;
-				case 'multipart/form-data':
-				case 'multipart/alternative':
-				case 'multipart/byteranges':
-				case 'multipart/digest':
-				case 'multipart/mixed':
-				case 'multipart/parallel':
-				case 'multipart/related':
-					if (FORMIDABLE)
-					{
-						var form = new FORMIDABLE.IncomingForm();
-						if (handlerObj.form)
-						{
-							util.combine(form, handlerObj.form);
-							if (handlerObj.form.events)
-								util.mapEventsTo(form, handlerObj.form.events);
-						}
-						
-						form.parse(request, function(err, fields, files)
-						{
-							if (err)
-							{
-								helpers.sendContent(response, 400, "text/plain", "400 Bad Input\n"+err);
-								return;
-							}
-							
-							_finishRequest(request, response, handlerObj, path, fields, files);
-						});
-					}
-					else
-						helpers.sendContent(response, 400, "text/plain", "400 Bad Request\nServer lacks the extension to process this request.");
-					break;
-				default:
-					helpers.sendContent(response, 400, "text/plain", "400 Bad Request\nUnsupported content type.");
-					break;
-			}
-		}
-		else
-		{
-			_finishRequest(request, response, handlerObj, path, QS.parse(urlObj.query));
-		}
-		
-	};
-}
+exports.router = router;
 
 /**
  * Creates an HTTP server via HTTP.createServer with the main router added.
  * @param handlerList the list of handler descriptors.
  * @param defaultRequestHandlerOptions the default options for the router.
  */
-function server(handlerList, defaultRequestHandlerOptions)
-{
-	return HTTP.createServer(createRequestHandler(handlerList, defaultRequestHandlerOptions));
-}
-
-// ............................. Exports ....................................
-
-exports.createRequestHandler = createRequestHandler;
 exports.server = server;
 
-exports.handlers = handlers;
-exports.helpers = helpers;
+/**
+ * Creates a new handler for a Jade file.
+ * @param root the document root.
+ * @param encoding (optional) the anticipated file encoding (if not specified, "utf8").
+ * @return a handler function.
+ */
+exports.createJadeHandler = handlers.createJadeHandler;
 
-exports.utils = util;
+/**
+ * Creates a new handler for a Mustache file.
+ * @param root the document root.
+ * @param encoding (optional) the anticipated file encoding (if not specified, "utf8").
+ * @return a handler function.
+ */
+exports.createMustacheHandler = handlers.createMustacheHandler;
+
+/**
+ * Creates a new handler for a Markdown file.
+ * @param root the document root.
+ * @param encoding (optional) the anticipated file encoding (if not specified, "utf8").
+ * @return a handler function.
+ */
+exports.createMarkdownHandler = handlers.createMarkdownHandler;
+
+/**
+ * Creates a new file handler, essentially creating a static file server.
+ * @param root the root directory for files.
+ * @param indexDirectory if directory, show directory index.
+ * @param encoding (optional) the anticipated file encoding of served text files (if not specified, "utf8").
+ * @returns a handler function.
+ */
+exports.createFileHandler = handlers.createFileHandler;
+
+/**
+ * Creates a new handler that is a chain of handlers - if one of the handlers returns
+ * a false-equivalent value, the chain is stopped.
+ * @param handlerFunctionList the list of handlers.
+ * @returns a handler function.
+ */
+exports.createHandlerChain = handlers.createHandlerChain;
+
+/**
+ * Handler function for telling the user that a resource could not be found.
+ * Sends HTTP status 404.
+ */
+exports.notFoundHandler = handlers.notFoundHandler;
+
+/**
+ * Handler function for telling the user that a request type is not supported.
+ * Sends HTTP status 405.
+ */
+exports.notSupportedHandler = handlers.notSupportedHandler;
+
+/**
+ * A special handler function for telling the user about the incoming request
+ * and additional information on the model object created by the main router.
+ * Sends HTTP status 200.
+ */
+exports.debugHandler = handlers.debugHandler;
+
+/**
+ * Sends data content fully through a response (plus end).
+ * @param response the response object.
+ * @param status the HTTP status code.
+ * @param type the MIME content type.
+ * @param content the full content.
+ */
+exports.sendContent = helpers.sendContent;
+
+/**
+ * Sends a status message as the only response content.
+ * @param response the response object.
+ * @param status the HTTP status code.
+ * @param message (optional) the message to send with the response.
+ */
+exports.sendStatus = helpers.sendStatus;
+
+/**
+ * Sends object content fully through a response as JSON (plus end).
+ * @param response the response object.
+ * @param status the HTTP status code.
+ * @param data the object.
+ */
+exports.sendObject = helpers.sendObject;
+
+/**
+ * Sends just the content header (before the content body). 
+ * @param response the response object.
+ * @param status the HTTP status code.
+ * @param type the MIME content type.
+ */
+exports.sendContentHeader = helpers.sendContentHeader;
+
+/**
+ * Sends content through the response (after the head is sent, but before the end).
+ * @param response the response object.
+ * @param status the HTTP status code.
+ * @param type the MIME content type.
+ * @param content the content fragment.
+ */
+exports.sendContentFragment = helpers.sendContentFragment;
+
+/**
+ * Ends the response object. 
+ * @param response the response object.
+ */
+exports.sendEnd = helpers.sendEnd;
+
+/**
+ * Sends a redirect to the client.
+ * @param response the response object.
+ * @param url the new url to redirect to.
+ * @param isPermanent is this a permanent redirect?
+ */
+exports.sendRedirect = helpers.sendRedirect;
+
+/**
+ * Sets a cookie on the response.
+ * @param response the response object to set it on.
+ * @param name the cookie name.
+ * @param value the object to set.
+ * @param expireTime (optional) the expiration date offset in milliseconds (written time is time from now).
+ * @param secure (optional) if set, only send to server if on a secure connection.
+ * @param path (optional) the domain path.
+ * @param domain (optional) the cookie domain.
+ */
+exports.setCookie = helpers.setCookie;
+
+/**
+ * Sets a cookie to expire immediately.
+ * @param response the response object to set it on.
+ * @param name the cookie name.
+ */
+exports.expireCookie = helpers.expireCookie;
+
+/**
+ * Gets cookies on the request, and returns them as an associated array.
+ * @param request the request object.
+ * @returns an map of objects of the following:
+ * "cookiename" -> {
+ *		name: Name of the cookie.
+ *		value: The value of the cookie (string).
+ *		Expires: Expiration date of the cookie (string).
+ *		path: The path associated with the cookie.
+ *		domain: The domain associated with the cookie.
+ *		secure: If defined, and true, this was associated with a secure connection.
+ * }
+ */
+exports.getCookies = helpers.getCookies;
+
+/**
+ * Returns a date formatted as the expected format for cookie expire time.
+ * @param date a date object, or a number (millisecond time) or string (date to parse using new Date()).
+ * @returns a date string formatted as "EEE, dd MMM yyyy HH:mm:ss 'GMT'".
+ */
+exports.formatExpireDate = util.formatExpireDate;
+
+/**
+ * Formats a date string.
+ * See Java's SimpleDateFormat object docs for info. 
+ * Uses the "G", "y", "M", "w", "W", "D", "d", "F", "E", "a", "H", "k", "K", "h", "m", "s", "S", "z", and "Z" symbols.
+ * @param date a date object, or a number (millisecond time) or string (date to parse using new Date()).
+ * @param formatstring the formatting string to use.
+ * @param (optional) if true, use UTC time. If false, current locale.
+ * @returns a formatted date string.
+ */
+exports.formatDate = util.formatDate;
 
 /**
  * Sets the internal logger's logging level.
