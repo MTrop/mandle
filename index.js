@@ -27,6 +27,7 @@ var RouterUnit = require('./lib/router').RouterUnit;
 
 // Import Optional External Modules ------------------------------------------ 
 
+/* Formidable by felixge. */
 var FORMIDABLE = util.require_maybe('formidable');
 
 if (!FORMIDABLE)
@@ -247,6 +248,7 @@ exports.router = router;
  * Creates an HTTP server via HTTP.createServer with the main router added.
  * @param handlerList the list of handler descriptors.
  * @param defaultRequestHandlerOptions the default options for the router.
+ * @returns an HTTP server instance
  */
 exports.server = server;
 
@@ -311,13 +313,12 @@ exports.notSupportedHandler = handlers.notSupportedHandler;
 exports.debugHandler = handlers.debugHandler;
 
 /**
- * Sends data content fully through a response (plus end).
+ * Sends a redirect to the client.
  * @param response the response object.
- * @param status the HTTP status code.
- * @param type the MIME content type.
- * @param content the full content.
+ * @param url the new url to redirect to.
+ * @param isPermanent is this a permanent redirect?
  */
-exports.sendContent = helpers.sendContent;
+exports.sendRedirect = helpers.sendRedirect;
 
 /**
  * Sends a status message as the only response content.
@@ -328,43 +329,47 @@ exports.sendContent = helpers.sendContent;
 exports.sendStatus = helpers.sendStatus;
 
 /**
+ * Sends the contents of a file through a response.
+ * @param response the response object.
+ * @param path the path to the file to send.
+ * @param type (optional) the file's MIME type. Guesses it by default.
+ */
+exports.sendFile = helpers.sendFile;
+
+/**
+ * Sends the contents of a file through a response.
+ * @param response the response object.
+ * @param data the data to send.
+ * @param encoding (optional) the file's encoding. Default: 'utf8'.
+ * @param type (optional) the file's MIME type. Guesses it by default.
+ */
+exports.sendData = helpers.sendData;
+
+/**
+ * Sends the contents of a file as a (forced) download through a response.
+ * @param response the response object.
+ * @param data the data to send.
+ * @param filename the file name to send the data as.
+ * @param type (optional) the file's MIME type. Guesses it by filename by default.
+ */
+exports.sendAttachmentData = helpers.sendAttachmentData;
+
+/**
+ * Sends the contents of a file as a (forced) download through a response.
+ * @param response the response object.
+ * @param path the path to the file to send.
+ * @param filename (optional) the file name to send the data as. Default is the base name of the path.
+ * @param type (optional) the file's MIME type. Guesses it by filename by default.
+ */
+exports.sendAttachmentFile = helpers.sendAttachmentFile;
+
+/**
  * Sends object content fully through a response as JSON (plus end).
  * @param response the response object.
  * @param status the HTTP status code.
  * @param data the object.
  */
 exports.sendObject = helpers.sendObject;
-
-/**
- * Sends just the content header (before the content body). 
- * @param response the response object.
- * @param status the HTTP status code.
- * @param type the MIME content type.
- */
-exports.sendContentHeader = helpers.sendContentHeader;
-
-/**
- * Sends content through the response (after the head is sent, but before the end).
- * @param response the response object.
- * @param status the HTTP status code.
- * @param type the MIME content type.
- * @param content the content fragment.
- */
-exports.sendContentFragment = helpers.sendContentFragment;
-
-/**
- * Ends the response object. 
- * @param response the response object.
- */
-exports.sendEnd = helpers.sendEnd;
-
-/**
- * Sends a redirect to the client.
- * @param response the response object.
- * @param url the new url to redirect to.
- * @param isPermanent is this a permanent redirect?
- */
-exports.sendRedirect = helpers.sendRedirect;
 
 /**
  * Sets a cookie on the response.
@@ -417,6 +422,13 @@ exports.formatExpireDate = util.formatExpireDate;
  * @returns a formatted date string.
  */
 exports.formatDate = util.formatDate;
+
+/**
+ * Returns the MIME type of a file path.
+ * @param filename the name of the file.
+ * @returns an associated MIME Type or 'application/octet-stream' if unknown.
+ */
+exports.mimetype = helpers.mimetype;
 
 /**
  * Sets the internal logger's logging level.
