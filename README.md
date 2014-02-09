@@ -16,7 +16,6 @@ Mandle has plenty appealing features.
 * Has built-in parameter parsing, on GET or POST requests.
 * Has built-in file upload handling, if Formidable is installed (optionally). 
 * Is essentially an onRequest handler, so it can be wired to HTTP or HTTPS.
-* Contains some handlers for 
 
 ## How to Install
 
