@@ -8,7 +8,7 @@ Mandle is currently in an **UNSTABLE** state and will undergo some changes befor
 
 ## Features
 
-Mandle has plenty appealing features.
+Mandle has plenty of appealing features.
 
 * Routes requests by static path or Regex or Wildcard pattern.
 * Has built-in session management.
