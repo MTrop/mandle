@@ -23,163 +23,7 @@ var handlers = require('./lib/handlers');
 var logging = require('./lib/logging');
 
 var SessionMap = require('./lib/sessionmap').SessionMap;
-var RouterUnit = require('./lib/router').RouterUnit;
-
-// Import Optional External Modules ------------------------------------------ 
-
-/* Formidable by felixge. */
-var FORMIDABLE = util.require_maybe('formidable');
-
-if (!FORMIDABLE)
-	logging.info("'Formidable' module not installed. Multipart parsing unavailable.");
-
-// OPTIONS ------------------------------------------------------------------- 
-
-// Creates a request handler function for routing requests.
-function router(routeList, options)
-{
-	var ROUTER_DEFAULTS =
-	{
-		"methods": ["GET", "POST"],
-		"session": false,
-	};
-
-	var SESSION_DEFAULTS =
-	{
-		"timeout": (1000 * 60 * 30)
-	};
-	
-	var defaultRouteOptions = util.combine({}, ROUTER_DEFAULTS, options ? options.routerDefaults : null);
-	var defaultSessionOptions = util.combine({}, SESSION_DEFAULTS, options ? options.sessionOptions : null);
-
-	// create handler map.
-	var RouterMap = new RouterUnit(routeList, defaultRouteOptions);
-	// create session map.
-	var sessions = new SessionMap(defaultSessionOptions);
-	
-	var _finishRequest = function(request, response, handlerObj, path, params, files)
-	{
-		request.cookies = helpers.getCookies(request);
-		
-		var model = {};
-		var split = request.headers.host.split(':');
-		model._method = request.method;
-		model._host = split[0];
-		model._port = split[1];
-		model._path = path;
-		model._params = params;
-		model._files = files ? files : {};
-		model._cookies = request.cookies;
-		model._session = null;
-
-		// do stuff according to options.
-		if (handlerObj.session)
-			model._session = sessions.get(request, response);
-		
-		handlerObj.handler(request, response, model);
-	};
-
-	var _readPOSTContent = function(request, callback)
-	{
-		var content = '';
-		
-		request.setEncoding("utf8");
-		request.addListener("data", function(chunk)
-		{
-			content += chunk;
-		});
-		
-		request.addListener("end", function()
-		{
-			callback(content);
-		});
-
-	};
-
-	return function(request, response)
-	{
-		var urlObj = URL.parse(request.url);
-		var path = urlObj.pathname;
-		
-		var handlerObj = RouterMap.getRouteForPath(request.method, path);
-
-		if (!handlerObj)
-		{
-			helpers.sendStatus(response, 405, "No handler for " + request.method + ' ' + model._path);
-			return;
-		}
-
-		// If POST, read request body like a buffer.
-		if (request.method === 'POST')
-		{
-			var ctype = request.headers["content-type"];
-			ctype = ctype.indexOf(';') >= 0 ? ctype.substring(0, ctype.indexOf(';')) : ctype;
-
-			switch (ctype)
-			{
-				case 'application/x-www-form-urlencoded':
-					_readPOSTContent(function(data)
-					{
-						try {
-							_finishRequest(request, response, handlerObj, path, QS.parse(data));
-						} catch (e) {
-							helpers.sendStatus(response, 400, "Content was not encoded properly for 'x-www-form-urlencoded'.");
-						}
-					});
-					break;
-				case 'application/json':
-					_readPOSTContent(function(data)
-					{
-						try {
-							_finishRequest(request, response, handlerObj, path, JSON.parse(data));
-						} catch (e) {
-							helpers.sendStatus(response, 400, "Content was not encoded properly for 'application/json'.");
-						}
-					});
-					break;
-				case 'multipart/form-data':
-				case 'multipart/alternative':
-				case 'multipart/byteranges':
-				case 'multipart/digest':
-				case 'multipart/mixed':
-				case 'multipart/parallel':
-				case 'multipart/related':
-					if (FORMIDABLE)
-					{
-						var form = new FORMIDABLE.IncomingForm();
-						if (handlerObj.form)
-						{
-							util.combine(form, handlerObj.form);
-							if (handlerObj.form.events)
-								util.mapEventsTo(form, handlerObj.form.events);
-						}
-						
-						form.parse(request, function(err, fields, files)
-						{
-							if (err)
-							{
-								helpers.sendStatus(response, 400, err);
-								return;
-							}
-							
-							_finishRequest(request, response, handlerObj, path, fields, files);
-						});
-					}
-					else
-						helpers.sendStatus(response, 400, "Server lacks the extension to process this request.");
-					break;
-				default:
-					helpers.sendStatus(response, 400, "Unsupported content type.");
-					break;
-			}
-		}
-		else
-		{
-			_finishRequest(request, response, handlerObj, path, QS.parse(urlObj.query));
-		}
-		
-	};
-}
+var router = require('./lib/router').router;
 
 // Creates an HTTP server via HTTP.createServer with the main router added.
 function server(handlerList, defaultRequestHandlerOptions)
@@ -235,7 +79,7 @@ function server(handlerList, defaultRequestHandlerOptions)
  *			methods: Request method bindings. Default ["GET", "POST"].
  *			session: Whether sessions are enabled or not. Default false.
  *		}
- *   	sessionOptions: Options for the session manager.
+ *		sessionOptions: Options for the session manager.
  *		{
  *			timeout: The timeout in milliseconds for each created session. Default (1000 * 60 * 30), or 30 minutes.
  *	 	}
@@ -248,7 +92,7 @@ exports.router = router;
  * Creates an HTTP server via HTTP.createServer with the main router added.
  * @param handlerList the list of handler descriptors.
  * @param defaultRequestHandlerOptions the default options for the router.
- * @returns an HTTP server instance
+ * @returns an HTTP server instance with the routing function (router()) attached to the "request" event.
  */
 exports.server = server;
 
@@ -445,4 +289,13 @@ exports.setLoggingLevel = function(level)
 {
 	if (level >= 0 && level <= 4)
 		logging.options.level = level;
+};
+
+/**
+ * Sets a view engine to be used by Mandle via the sendView() function.
+ * This function gets called 
+ */
+exports.setViewResolver = function(name, hookFunction) 
+{
+	// TODO: Finish.
 };
