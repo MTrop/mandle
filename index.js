@@ -21,14 +21,116 @@ var util = require('./lib/util');
 var helpers = require('./lib/helpers');
 var handlers = require('./lib/handlers');
 var logging = require('./lib/logging');
+var views = require('./lib/views');
 
 var router = require('./lib/router').router;
+
+// Import Optional Modules --------------------------------------------------- 
+
+/* JADE by tjholowaychuk and forbeslindesay */
+var JADE = util.require_maybe('jade');
+/* MUSTACHE by nathan and mjackson */
+var MUSTACHE = util.require_maybe('mustache');
+/* MARKDOWN by ashb and dom */
+var MARKDOWN = util.require_maybe('markdown');
+
 
 // Creates an HTTP server via HTTP.createServer with the main router added.
 function server(handlerList, defaultRequestHandlerOptions)
 {
 	return HTTP.createServer(router(handlerList, defaultRequestHandlerOptions));
 }
+
+if (MARKDOWN)
+{
+	views.register('markdown', ['md', 'markdown'], function(response, path, model)
+	{
+		FS.readFile(path, 'utf8', function(err, data)
+		{
+			if (err)
+			{
+				helpers.sendStatus(response, 500, err);
+				logging.error(err);
+			}
+			else
+			{
+				try {
+					var content = MARKDOWN.markdown.toHTML(data);
+					helpers.sendData(response, content, 'text/html');
+				} catch (e) {
+					helpers.sendStatus(response, 500, e);
+					logging.error(e);
+				}
+			}
+		});
+		
+	});
+	logging.info("'Markdown' module installed. The 'markdown' view engine is available.");
+}	
+else
+	logging.info("'Markdown' module NOT installed. The 'markdown' view engine is unavailable.");
+
+if (MUSTACHE)
+{
+	views.register('mustache', ['mst', 'mustache'], function(response, path, model)
+	{
+		FS.readFile(path, 'utf8', function(err, data)
+		{
+			if (err)
+			{
+				helpers.sendStatus(response, 500, err);
+				logging.error(err);
+			}
+			else
+			{
+				try {
+					helpers.sendData(response, MUSTACHE.render(data, model), 'text/html');
+				} catch (e) {
+					helpers.sendStatus(response, 500, e);
+					logging.error(e);
+				}
+			}
+		});
+	});
+	logging.info("'Mustache' module installed. The 'mustache' view engine is available.");
+}
+else
+	logging.info("'Mustache' module NOT installed. The 'mustache' view engine is unavailable.");
+
+if (JADE)
+{
+	// Cache of Jade-compiled Jade pages. Maps path to generator function.
+	var _JADECACHE = {};
+
+	views.register('jade', 'jade', function(response, path, model)
+	{
+		FS.readFile(path, 'utf8', function(err, data)
+		{
+			if (err)
+			{
+				helpers.sendStatus(response, 500, err);
+				logging.error(err);
+			}
+			else
+			{
+				try {
+					var file = root + model._path;
+					var fn = _JADECACHE[file] ? _JADECACHE[file] : _JADECACHE[file] = JADE.compile(data, {"filename": file});
+					var htmlout = fn(model);
+					helpers.sendData(response, htmlout, 'text/html');
+				} catch (e) {
+					helpers.sendStatus(response, 500, e);
+					logging.error(e);
+				}
+			}
+		});
+	});
+	logging.info("'Jade' module installed. The 'jade' view engine is available.");
+}
+else
+	logging.info("'Jade' module NOT installed. The 'jade' view engine is unavailable.");
+
+
 
 // ............................. Exports ....................................
 
@@ -94,30 +196,6 @@ exports.router = router;
  * @returns an HTTP server instance with the routing function (router()) attached to the "request" event.
  */
 exports.server = server;
-
-/**
- * Creates a new handler for a Jade file.
- * @param root the document root.
- * @param encoding (optional) the anticipated file encoding (if not specified, "utf8").
- * @return a handler function.
- */
-exports.createJadeHandler = handlers.createJadeHandler;
-
-/**
- * Creates a new handler for a Mustache file.
- * @param root the document root.
- * @param encoding (optional) the anticipated file encoding (if not specified, "utf8").
- * @return a handler function.
- */
-exports.createMustacheHandler = handlers.createMustacheHandler;
-
-/**
- * Creates a new handler for a Markdown file.
- * @param root the document root.
- * @param encoding (optional) the anticipated file encoding (if not specified, "utf8").
- * @return a handler function.
- */
-exports.createMarkdownHandler = handlers.createMarkdownHandler;
 
 /**
  * Creates a new file handler, essentially creating a static file server.
@@ -215,6 +293,17 @@ exports.sendAttachmentFile = helpers.sendAttachmentFile;
 exports.sendObject = helpers.sendObject;
 
 /**
+ * Sends the contents of a processed view through a response.
+ * @param response the response object.
+ * @param path the path to the file to send.
+ * @param model the object from which to retrieve mutable information in the view templates.
+ * @param engineName (optional) if specified, uses a specific engine by name. if not specified,
+ * looks it up by associated path extension.
+ * (response, path, model, engineName)
+ */
+exports.sendView = helpers.sendView;
+
+/**
  * Sets a cookie on the response.
  * @param response the response object to set it on.
  * @param name the cookie name.
@@ -291,10 +380,14 @@ exports.setLoggingLevel = function(level)
 };
 
 /**
- * Sets a view engine to be used by Mandle via the sendView() function.
- * This function gets called 
+ * Adds a view engine for use with sendView().
+ * @param name the engine/templater name.
+ * @param extension the associated extension for files. can take an array for multiple.
+ * @param engineFunc the function to use for processing the view template.
+ * The function must take three parameters: (response, path, model)
+ * Response is the response object.
+ * Path is the path of the input file to read.
+ * Model is the object to use as the view's data seed.
  */
-exports.setViewResolver = function(name, hookFunction) 
-{
-	// TODO: Finish.
-};
+exports.registerViewEngine = views.register;
+
