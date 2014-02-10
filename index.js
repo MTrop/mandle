@@ -35,12 +35,6 @@ var MUSTACHE = util.require_maybe('mustache');
 var MARKDOWN = util.require_maybe('markdown');
 
 
-// Creates an HTTP server via HTTP.createServer with the main router added.
-function server(handlerList, defaultRequestHandlerOptions)
-{
-	return HTTP.createServer(router(handlerList, defaultRequestHandlerOptions));
-}
-
 if (MARKDOWN)
 {
 	views.register('markdown', ['md', 'markdown'], function(response, path, model)
@@ -131,6 +125,11 @@ else
 	logging.info("'Jade' module NOT installed. The 'jade' view engine is unavailable.");
 
 
+//Creates an HTTP server via HTTP.createServer with the main router added.
+function server(handlerList, defaultRequestHandlerOptions)
+{
+	return HTTP.createServer(router(handlerList, defaultRequestHandlerOptions));
+}
 
 // ............................. Exports ....................................
 
