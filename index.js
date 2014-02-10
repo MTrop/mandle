@@ -22,7 +22,6 @@ var helpers = require('./lib/helpers');
 var handlers = require('./lib/handlers');
 var logging = require('./lib/logging');
 
-var SessionMap = require('./lib/sessionmap').SessionMap;
 var router = require('./lib/router').router;
 
 // Creates an HTTP server via HTTP.createServer with the main router added.
