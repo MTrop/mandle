@@ -19,7 +19,7 @@ Mandle has plenty of appealing features.
 
 ## How to Install
 
-If you have [npm], installing **Mandle** couldn't be easier.
+If you have [npm](https://npmjs.org), installing **Mandle** couldn't be easier.
 
 ```
 npm install git+https://github.com/MTrop/mandle.git
