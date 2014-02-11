@@ -298,9 +298,32 @@ exports.sendObject = helpers.sendObject;
  * @param model the object from which to retrieve mutable information in the view templates.
  * @param engineName (optional) if specified, uses a specific engine by name. if not specified,
  * looks it up by associated path extension.
- * (response, path, model, engineName)
  */
 exports.sendView = helpers.sendView;
+
+/**
+ * Sends a basic authentication header in the response.
+ * @param response the response object.
+ * @param realmName the basic realm name.
+ */
+exports.sendAuthenticateBasic = helpers.sendAuthenticateBasic;
+
+/**
+ * Provides a means for checking authentication credentials.
+ * For now, only understands Basic auth requests.
+ * @param request the request object.
+ * @param authFunction the function to call to complete the authentication check.
+ * Must return true if authorized or false if not. Must take four arguments:
+ * (
+ *		path: the requested path.
+ *		realm: the realm passed to the server (is null in Basic auth - it isn't passed).
+ *		username: the parsed username.
+ *		password: the parsed password.
+ * )
+ * @returns true if the authFunction returns true; 
+ * false if unknown/unsupported auth type or the authFunction returns false.
+ */
+exports.checkAuthorization = helpers.checkAuthorization;
 
 /**
  * Sets a cookie on the response.
