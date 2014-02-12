@@ -25,7 +25,7 @@ If you have [npm](https://npmjs.org), installing **Mandle** couldn't be easier.
 npm install git+https://github.com/MTrop/mandle.git
 ```
 
-*(Once NPM's login and registration bits start working again, that'll be a heck
+*(Once I have a release and publish it to NPM, that'll be a heck
 of a lot shorter, I promise)*
 
 You can also install it manually via Git, if you so wished:
