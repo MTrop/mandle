@@ -33,6 +33,8 @@ var JADE = util.require_maybe('jade');
 var MUSTACHE = util.require_maybe('mustache');
 /* MARKDOWN by ashb and dom */
 var MARKDOWN = util.require_maybe('markdown');
+/* EJS */
+var EJS = util.require_maybe('ejs');
 
 
 if (MARKDOWN)
@@ -43,7 +45,7 @@ if (MARKDOWN)
 		{
 			if (err)
 			{
-				helpers.sendStatus(response, 500, err);
+				helpers.sendStatus(response, 500);
 				logging.error(err);
 			}
 			else
@@ -52,7 +54,7 @@ if (MARKDOWN)
 					var content = MARKDOWN.markdown.toHTML(data);
 					helpers.sendData(response, content, 'text/html');
 				} catch (e) {
-					helpers.sendStatus(response, 500, e);
+					helpers.sendStatus(response, 500);
 					logging.error(e);
 				}
 			}
@@ -72,7 +74,7 @@ if (MUSTACHE)
 		{
 			if (err)
 			{
-				helpers.sendStatus(response, 500, err);
+				helpers.sendStatus(response, 500);
 				logging.error(err);
 			}
 			else
@@ -80,7 +82,7 @@ if (MUSTACHE)
 				try {
 					helpers.sendData(response, MUSTACHE.render(data, model), 'text/html');
 				} catch (e) {
-					helpers.sendStatus(response, 500, e);
+					helpers.sendStatus(response, 500);
 					logging.error(e);
 				}
 			}
@@ -102,7 +104,7 @@ if (JADE)
 		{
 			if (err)
 			{
-				helpers.sendStatus(response, 500, err);
+				helpers.sendStatus(response, 500);
 				logging.error(err);
 			}
 			else
@@ -113,7 +115,7 @@ if (JADE)
 					var htmlout = fn(model);
 					helpers.sendData(response, htmlout, 'text/html');
 				} catch (e) {
-					helpers.sendStatus(response, 500, e);
+					helpers.sendStatus(response, 500);
 					logging.error(e);
 				}
 			}
@@ -123,6 +125,39 @@ if (JADE)
 }
 else
 	logging.info("'Jade' module NOT installed. The 'jade' view engine is unavailable.");
+
+if (EJS)
+{
+	views.register('ejs', 'ejs', function(response, path, model)
+	{
+		FS.readFile(path, 'utf8', function(err, data)
+		{
+			if (err)
+			{
+				helpers.sendStatus(response, 500);
+				logging.error(err);
+			}
+			else
+			{
+				try {
+					var file = root + model._path;
+					var htmlout = EJS.render(data, {
+						cache: true,
+						filename: file,
+						scope: model
+					});
+					helpers.sendData(response, htmlout, 'text/html');
+				} catch (e) {
+					helpers.sendStatus(response, 500);
+					logging.error(e);
+				}
+			}
+		});
+	});
+	logging.info("'EJS' module installed. The 'ejs' view engine is available.");
+}
+else
+	logging.info("'EJS' module NOT installed. The 'ejs' view engine is unavailable.");
 
 
 //Creates an HTTP server via HTTP.createServer with the main router added.
