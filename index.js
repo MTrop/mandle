@@ -437,6 +437,15 @@ exports.setLoggingLevel = function(level)
 };
 
 /**
+ * Sets the internal logger's date format string.
+ * Default is: "yyyy-MM-dd hh:mm:ss.SSS"
+ */
+exports.setLoggingDateFormat = function(dateFormat) 
+{
+	logging.options.dateFormat = dateFormat;
+};
+
+/**
  * Adds a view engine for use with sendView().
  * @param name the engine/templater name.
  * @param extension the associated extension for files. can take an array for multiple.
