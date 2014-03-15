@@ -288,6 +288,7 @@ exports.sendStatus = helpers.sendStatus;
  * @param response the response object.
  * @param path the path to the file to send.
  * @param type (optional) the file's MIME type. Guesses it by default.
+ * @param encoding (optional) the file's encoding. Default: 'utf8'.
  */
 exports.sendFile = helpers.sendFile;
 
@@ -295,8 +296,8 @@ exports.sendFile = helpers.sendFile;
  * Sends the contents of a file through a response.
  * @param response the response object.
  * @param data the data to send.
- * @param encoding (optional) the file's encoding. Default: 'utf8'.
  * @param type (optional) the file's MIME type. Guesses it by default.
+ * @param encoding (optional) the file's encoding. Default: 'utf8'.
  */
 exports.sendData = helpers.sendData;
 
