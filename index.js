@@ -438,7 +438,7 @@ exports.setLoggingLevel = function(level)
 
 /**
  * Sets the internal logger's date format string.
- * Default is: "yyyy-MM-dd hh:mm:ss.SSS"
+ * Default is: "yyyy-MM-dd HH:mm:ss.SSS"
  */
 exports.setLoggingDateFormat = function(dateFormat) 
 {
