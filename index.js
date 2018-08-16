@@ -6,24 +6,24 @@
 
 // Import Node Modules ------------------------------------------------------- 
 
-var FS = require('fs');
-var HTTP = require('http');
-var URL = require('url');
-var PATH = require('path');
-var QS = require('querystring');
-var OS = require('os');
+const FS = require('fs');
+const HTTP = require('http');
+const URL = require('url');
+const PATH = require('path');
+const QS = require('querystring');
+const OS = require('os');
 
-var TMPDIR = OS.tmpDir();
+const TMPDIR = OS.tmpdir();
 
 // Import Internal Modules --------------------------------------------------- 
 
-var util = require('./lib/util');
-var helpers = require('./lib/helpers');
-var handlers = require('./lib/handlers');
-var logging = require('./lib/logging');
-var views = require('./lib/views');
+const util = require('./lib/util');
+const helpers = require('./lib/helpers');
+const handlers = require('./lib/handlers');
+const logging = require('./lib/logging');
+const views = require('./lib/views');
 
-var router = require('./lib/router').router;
+const router = require('./lib/router');
 
 // Import Optional Modules --------------------------------------------------- 
 
@@ -163,7 +163,7 @@ else
 //Creates an HTTP server via HTTP.createServer with the main router added.
 function server(handlerList, defaultRequestHandlerOptions)
 {
-	return HTTP.createServer(router(handlerList, defaultRequestHandlerOptions));
+	return HTTP.createServer(router.router(handlerList, defaultRequestHandlerOptions));
 }
 
 // ............................. Exports ....................................
@@ -176,7 +176,8 @@ function server(handlerList, defaultRequestHandlerOptions)
  *		_host: the requested host
  *		_port: the requested port
  *		_path: the parsed path
- *		_params: an associative array of parameters. Key is param name. Value is string or string array.
+ *		_params: a object map of parameters. Key is param name. Value is string or array of strings.
+ *		_matches: an array of matched patterns if path was regex.
  *		_files: an associative array of file handles. Key is param name. Value is the following:
  *		{
  *			name: filename, according to client.
@@ -189,16 +190,17 @@ function server(handlerList, defaultRequestHandlerOptions)
  *		_cookies: an associative array of cookies. cookie name -> Object. (This is also set on the request object as member "cookies").
  *		_session: the current session object, if any. if sessions are not enabled for this handler, it is null!
  * } 
+ * 
  * @param routeList the list of routes to map. 
  * {
- *		methods: [ ... ] // HTTP methods default: ["GET", "POST"]
+ *		methods: [ ... ] // HTTP methods default: ["GET"]
  *		path: '/blah' or /regex/
  *		handler: function(request, response, model)
  *		session: true or false (if true, tie to a session. if false, don't. default: false)
  *		form: an object detailing options for FORMIDABLE, the form parser (if installed - used if multipart content).
  *		{
  *			encoding: Request body encoding. Default 'utf8'.
- *			uploadDir: Temporary directory for file uploads. Default OS.tmpDir().
+ *			uploadDir: Temporary directory for file uploads. Default OS.tmpdir().
  *			keepExtensions: if true, keep file extensions on uploads. If false, don't. Default false.
  *			type: type of form ('multipart' or 'urlencoded'). Default 'multipart'.
  *			maxFieldsSize: Maximum acceptable field size. Default 2MB.
@@ -221,10 +223,23 @@ function server(handlerList, defaultRequestHandlerOptions)
  * }
  * @returns {Function} for use as an HTTP.Server's "on incoming request" callback.
  */
-exports.router = router;
+exports.router = router.router;
 
 /**
- * Creates an HTTP server via HTTP.createServer with the main router added.
+ * Convenience function: Creates a route descriptor to be added to a Mandle router.
+ * Parameters are optional, but must be terminated with the handler function.
+ * (handler)
+ * (path, handler) 
+ * (path, methods, handler) 
+ * (path, methods, session, handler) 
+ * (path, methods, session, formOptions, handler) 
+ * @param handlerList the list of handler descriptors.
+ * @returns an HTTP server instance with the routing function (router()) attached to the "request" event.
+ */
+exports.route = router.route;
+
+/**
+ * Convenience function: Creates an HTTP server via HTTP.createServer with the main router added.
  * @param handlerList the list of handler descriptors.
  * @param defaultRequestHandlerOptions the default options for the router.
  * @returns an HTTP server instance with the routing function (router()) attached to the "request" event.
@@ -232,7 +247,7 @@ exports.router = router;
 exports.server = server;
 
 /**
- * Creates a new file handler, essentially creating a static file server.
+ * Creates a new file handler function, essentially creating a static file server.
  * @param root the root directory for files.
  * @param indexDirectory if directory, show directory index.
  * @param encoding (optional) the anticipated file encoding of served text files (if not specified, "utf8").
@@ -241,7 +256,7 @@ exports.server = server;
 exports.createFileHandler = handlers.createFileHandler;
 
 /**
- * Creates a new handler that is a chain of handlers - if one of the handlers returns
+ * Creates a new handler function that is a chain of handlers - if one of the handlers returns
  * a false-equivalent value, the chain is stopped.
  * @param handlerFunctionList the list of handlers.
  * @returns a handler function.
